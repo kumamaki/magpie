@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/provider"
 )
@@ -178,6 +179,43 @@ func TestDroid(t *testing.T) {
 		t.Fatalf("not restored:\n%s", got)
 	}
 	_ = home
+}
+
+// A model that thinks is written with a reasoningEffort (high where it
+// takes it, else its strongest): without one droid takes the model as
+// non-reasoning and clamps its effort to none. A model that doesn't
+// think has none written.
+func TestDroidReasoningEffort(t *testing.T) {
+	home, path := droidHome(t)
+	a := droid(home)
+	think := provider.Provider{ID: "think", Name: "Think", Key: "k", Chat: "http://127.0.0.1:1/v1", Models: []string{"deep", "flat", "switch"}}
+	if err := provider.Save(think); err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.SaveLive("think", "http://127.0.0.1:1/v1", []catalog.Model{
+		{ID: "deep", Efforts: []string{"low", "high", "max"}},
+		{ID: "flat"},
+		{ID: "switch", Reasoning: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Apply("model", "magpie/think/deep"); err != nil {
+		t.Fatal(err)
+	}
+	ms, _, _ := droidFile(t, path)
+	for id, want := range map[string]any{
+		"custom:magpie/think/deep":   "high",
+		"custom:magpie/think/flat":   nil,
+		"custom:magpie/think/switch": "high",
+	} {
+		e := ms[id]
+		if e == nil {
+			t.Fatalf("%s missing", id)
+		}
+		if e["reasoningEffort"] != want {
+			t.Errorf("%s: reasoningEffort %v, want %v", id, e["reasoningEffort"], want)
+		}
+	}
 }
 
 // Picking one of the user's own models while on magpie's takes magpie out.

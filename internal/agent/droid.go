@@ -31,6 +31,7 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/jsonc"
 
+	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/provider"
@@ -53,6 +54,10 @@ type droidEntry struct {
 	Provider        string `json:"provider"`
 	MaxContextLimit int    `json:"maxContextLimit,omitempty"`
 	MaxOutputTokens int    `json:"maxOutputTokens,omitempty"`
+	// a custom model without it is non-reasoning to droid: it clamps its
+	// effort to none. ReasoningEffort is the default new sessions start
+	// at and what unlocks droid's effort picker for the model
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 	// droid takes a model on Chat Completions as seeing no images unless
 	// told otherwise, so this is always written
 	NoImageSupport bool `json:"noImageSupport"`
@@ -79,9 +84,35 @@ func droidEntriesAt(gw string) []droidEntry {
 		if e.DisplayName = m.Name; e.DisplayName == "" {
 			e.DisplayName = m.ID
 		}
+		e.ReasoningEffort = droidEffort(m)
 		out = append(out, e)
 	}
 	return out
+}
+
+// droidEffort is the reasoningEffort a magpie model is written with: high
+// where it takes it, else its strongest level, the picker's "high" the
+// gateway's fitEffort then fits to what the model has. "" on a model that
+// doesn't think, which droid leaves non-reasoning.
+func droidEffort(m catalog.Model) string {
+	if !m.Reasoning && len(m.Efforts) == 0 {
+		return ""
+	}
+	if slices.Contains(m.Efforts, "high") {
+		return "high"
+	}
+	best, rank := "", -1
+	for _, l := range m.Efforts {
+		if i := slices.Index(catalog.EffortRank, l); i > rank {
+			best, rank = l, i
+		}
+	}
+	if best == "" || best == "none" {
+		// thinking with a switch alone (mimo-v2.6-flash) still needs an
+		// effort droid can send
+		return "high"
+	}
+	return best
 }
 
 // droidSlug is droid's own spelling of a display name in a model id.
